@@ -338,10 +338,12 @@
         }
 
         function handleEvent(data) {
-            if (data.type === 'log') {
-                if (data.message.includes("LLM Suggested Action")) {
-                    const action = data.message.replace("LLM Suggested Action:", "").trim();
-                    addMessage(action, 'ai');
+            if (data.type === 'message') {
+                addMessage(data.content, data.role || 'ai');
+            } else if (data.type === 'log') {
+                if (data.message.indexOf("LLM Suggested Action") !== -1 || data.message.indexOf("Assistant:") === 0) {
+                    const cleanMsg = data.message.replace("LLM Suggested Action:", "").replace("Assistant:", "").trim();
+                    if (cleanMsg) addMessage(cleanMsg, 'ai');
                 } else {
                     addLog(data.message);
                 }

@@ -28,6 +28,7 @@ class Agent:
         # Research session tracking
         self.current_research_session = None
         self.research_mode = False
+        self.started = False
         
         # Load memory for system prompt
         self.user_context = self.memory.get_context_string()
@@ -64,12 +65,24 @@ MEMORY / LEARNING:
         self.screenshots_dir = os.path.join(self.data_dir, "screenshots")
         os.makedirs(self.screenshots_dir, exist_ok=True)
 
+    def log(self, message: str, level: str = "info"):
+        logger.info(message)
+        if self.event_callback:
+            # Emit both as log AND potentially as a message if it's assistant content
+            self.event_callback({"type": "log", "message": message, "level": level})
+
+    def emit_message(self, content: str, role: str = "ai"):
+        if self.event_callback:
+            self.event_callback({"type": "message", "role": role, "content": content})
+
     async def start(self):
-        await self.browser_manager.start()
-        self.log("Browser started.")
-        # Start background streaming
-        self.streaming = True
-        asyncio.create_task(self.stream_loop())
+        if not self.started:
+            await self.browser_manager.start()
+            self.started = True
+            self.log("Browser started.")
+            # Start background streaming
+            self.streaming = True
+            asyncio.create_task(self.stream_loop())
 
     async def stream_loop(self):
         """Continuously captures screenshots to provide a live feed."""
@@ -144,6 +157,7 @@ MEMORY / LEARNING:
         
         while turn < max_turns:
             turn += 1
+            self.log(f"Thinking (Turn {turn}/{max_turns})...")
             response_msg = self.llm.chat(self.history, tools=BROWSER_TOOLS)
             
             if not response_msg:
@@ -178,6 +192,7 @@ MEMORY / LEARNING:
             self.history.append(msg_dict) 
 
             if response_msg.content:
+                 self.emit_message(response_msg.content)
                  self.log(f"Assistant: {response_msg.content}")
 
             if response_msg.tool_calls:
