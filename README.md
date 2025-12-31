@@ -27,7 +27,7 @@ Think of it as "Selenium meets ChatGPT" - but the AI decides what to do next.
 | **Team Collaboration** | ❌ No | ✅ Yes |
 | **Support** | Community | Priority |
 | **Hosting** | Self-hosted | Cloud-hosted |
-| **Price** | Free | $49/month |
+| **Price** | Free | $29/month |
 
 **Use this open-source version if:**
 - You want to build your own automation tools
