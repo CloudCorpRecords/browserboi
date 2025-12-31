@@ -60,21 +60,30 @@ def get_or_create_agent(instance_id: int):
 def broadcast_event(instance_id: int, event):
     """Helper to send event to all connected websockets for this instance"""
     message = json.dumps(event)
+    print(f"[BROADCAST] Instance {instance_id}: {event.get('type')} - {str(event)[:100]}")
+    
     if instance_id not in connected_websockets:
+        print(f"[BROADCAST] No websockets connected for instance {instance_id}")
         return
     
-    to_remove = set()
-    for ws in connected_websockets[instance_id]:
-        try:
-            # Use asyncio.create_task to send without blocking
-            task = asyncio.create_task(ws.send_text(message))
-            task.add_done_callback(lambda t: t.exception() if t.exception() else None) 
-        except Exception:
-            to_remove.add(ws)
+    websockets_to_notify = list(connected_websockets[instance_id])
+    if not websockets_to_notify:
+        print(f"[BROADCAST] Empty websocket set for instance {instance_id}")
+        return
     
-    # Remove disconnected websockets
-    for ws in to_remove:
-        connected_websockets[instance_id].discard(ws)
+    print(f"[BROADCAST] Sending to {len(websockets_to_notify)} websocket(s)")
+    
+    for ws in websockets_to_notify:
+        try:
+            # Get the running event loop and schedule the send
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(ws.send_text(message), loop)
+            else:
+                loop.run_until_complete(ws.send_text(message))
+        except Exception as e:
+            print(f"[BROADCAST] Error sending to websocket: {e}")
+            connected_websockets[instance_id].discard(ws)
 
 async def run_agent_task(instance_id: int, task_prompt: str):
     print(f"[DEBUG] Starting task for instance {instance_id}: {task_prompt}")
