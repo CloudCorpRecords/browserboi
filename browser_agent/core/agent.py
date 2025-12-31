@@ -98,11 +98,6 @@ MEMORY / LEARNING:
                     pass
             await asyncio.sleep(0.5) # 2 FPS
 
-    def log(self, message: str, type: str = "info"):
-        logger.info(message)
-        if self.event_callback:
-            self.event_callback({"type": "log", "message": message, "level": type})
-            
     def emit_screenshot(self, path: str):
         if self.event_callback:
             try:

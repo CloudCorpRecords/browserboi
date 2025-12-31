@@ -20,13 +20,15 @@ class BrowserManager:
 
     async def start(self):
         """Starts the Playwright browser session."""
+        if self.playwright:
+             await self.stop()
+
         self.playwright = await async_playwright().start()
         
         # ALWAYS run headless for Electron embedding
-        # Enable CDP for remote control
+        # Use pipes (default) instead of fixed port to avoid conflicts
         self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            args=['--remote-debugging-port=9222']
+            headless=True
         )
         
         # Load storage state if exists (cookies, local storage)
