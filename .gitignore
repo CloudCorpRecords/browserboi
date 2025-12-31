@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+settings.json
+browser_state.json
+user_data.json
+.DS_Store
+venv/
+brain/
+artifacts/
+current_state.png
+current_state.jpg

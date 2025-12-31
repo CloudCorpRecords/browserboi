@@ -1,0 +1,10 @@
+playwright
+python-dotenv
+openai
+pytest
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+websockets
+google-generativeai

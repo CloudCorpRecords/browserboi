@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Agent Chat</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --sidebar-bg: #161b22;
+            --chat-bg: #0d1117;
+            --input-bg: #21262d;
+            --border-color: #30363d;
+            --accent-color: #58a6ff;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --user-msg-bg: #1f6feb;
+            --ai-msg-bg: #21262d;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        .chat-section {
+            width: 400px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            background-color: var(--sidebar-bg);
+        }
+
+        .browser-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #000;
+            position: relative;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Header */
+        .header {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h2 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            background-color: #333;
+        }
+
+        .status-dot.connected {
+            background-color: #2ea043;
+            box-shadow: 0 0 8px #2ea043;
+        }
+
+        /* Chat Area */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 10px 15px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background-color: var(--user-msg-bg);
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.ai {
+            align-self: flex-start;
+            background-color: var(--ai-msg-bg);
+            color: var(--text-primary);
+            border-bottom-left-radius: 2px;
+            border: 1px solid var(--border-color);
+        }
+
+        .message.log {
+            align-self: center;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: transparent;
+            border: 1px solid var(--border-color);
+            padding: 5px 10px;
+            width: 90%;
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--sidebar-bg);
+        }
+
+        .input-box {
+            display: flex;
+            gap: 10px;
+        }
+
+        textarea {
+            flex: 1;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            padding: 10px;
+            resize: none;
+            height: 40px;
+            font-family: inherit;
+        }
+
+        textarea:focus {
+            outline: 1px solid var(--accent-color);
+        }
+
+        button {
+            background-color: var(--accent-color);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            padding: 0 20px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            background-color: var(--border-color);
+            cursor: not-allowed;
+        }
+
+        /* Browser View */
+        #liveView {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+
+        .browser-placeholder {
+            color: var(--text-secondary);
+            font-size: 1.2rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="chat-section">
+            <div class="header">
+                <h2>Agent Chat</h2>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <button id="memoryBtn"
+                        style="padding:4px 8px; font-size:0.8rem; background:#30363d;">Memory</button>
+                    <button id="settingsBtn"
+                        style="padding:4px 8px; font-size:0.8rem; background:#30363d;">Settings</button>
+                    <div id="connectionStatus" class="status-dot"></div>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chat">
+                <div class="message ai">Hello! I am your Browser Agent. What would you like me to do?</div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-box">
+                    <textarea id="msgInput" placeholder="Type a message..." disabled></textarea>
+                    <button id="sendBtn" disabled>Send</button>
+                </div>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                    <button id="stopBtn" style="background:#da3633; font-size: 0.8rem; padding: 5px 10px;">Stop
+                        Agent</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="browser-section">
+            <div id="placeholder" class="browser-placeholder">Waiting for task...</div>
+            <img id="liveView" src="" alt="Live Browser View">
+        </div>
+    </div>
+
+    <!-- Memory Modal -->
+    <div id="memoryModal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+        <div
+            style="background:#161b22; padding:20px; border-radius:12px; width:500px; border:1px solid #30363d; max-height:80vh; display:flex; flex-direction:column;">
+            <h3 style="margin-top:0;">User Memory</h3>
+            <p style="font-size:0.8rem; color:#8b949e;">Agent will use this info to fill forms. Add any keys you want.
+            </p>
+
+            <div id="memoryList" style="flex:1; overflow-y:auto; margin-bottom:15px; padding-right:5px;">
+                <!-- Dynamic Items -->
+            </div>
+
+            <button id="addMemKeyBtn"
+                style="background:#21262d; border:1px dashed #30363d; width:100%; padding:8px; margin-bottom:15px;">+
+                Add New Field</button>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button id="closeMemBtn" style="background:#30363d;">Close</button>
+                <button id="saveMemBtn" style="background:#2ea043;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:#161b22; padding:20px; border-radius:12px; width:450px; border:1px solid #30363d;">
+            <h3 style="margin-top:0;">Agent Settings</h3>
+
+            <label style="display:block; margin-bottom:5px;">LLM Provider</label>
+            <select id="setProvider"
+                style="width:100%; margin-bottom:15px; padding:5px; background:#0d1117; border:1px solid #30363d; color:white;">
+                <option value="lm_studio">Local (LM Studio)</option>
+                <option value="gemini">Google Gemini</option>
+            </select>
+
+            <hr style="border:0; border-top:1px solid #30363d; margin: 15px 0;">
+
+            <div id="sectionLMStudio">
+                <h4 style="margin:5px 0 10px;">LM Studio Config</h4>
+                <label style="display:block; margin-bottom:5px; font-size:0.8rem;">Base URL</label>
+                <input type="text" id="setLmUrl"
+                    style="width:100%; margin-bottom:10px; padding:5px; background:#0d1117; border:1px solid #30363d; color:white;">
+
+                <label style="display:block; margin-bottom:5px; font-size:0.8rem;">Model Name</label>
+                <input type="text" id="setLmModel"
+                    style="width:100%; margin-bottom:10px; padding:5px; background:#0d1117; border:1px solid #30363d; color:white;">
+            </div>
+
+            <div id="sectionGemini" style="display:none;">
+                <h4 style="margin:5px 0 10px;">Gemini Config</h4>
+                <label style="display:block; margin-bottom:5px; font-size:0.8rem;">API Key</label>
+                <input type="password" id="setGemApiKey"
+                    style="width:100%; margin-bottom:10px; padding:5px; background:#0d1117; border:1px solid #30363d; color:white;">
+
+                <label style="display:block; margin-bottom:5px; font-size:0.8rem;">Model Name</label>
+                <select id="setGemModel"
+                    style="width:100%; margin-bottom:10px; padding:5px; background:#0d1117; border:1px solid #30363d; color:white;">
+                    <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
+                    <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Latest)</option>
+                    <option value="gemini-1.5-flash-002">Gemini 1.5 Flash (002)</option>
+                    <option value="gemini-1.5-pro-002">Gemini 1.5 Pro (002)</option>
+                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental)</option>
+                    <option value="gemini-3-pro-preview">Gemini 3 Pro (Preview)</option>
+                </select>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+                <button id="closeSetBtn" style="background:#30363d;">Close</button>
+                <button id="saveSetBtn" style="background:#2ea043;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        let socket;
+        let isConnected = false;
+
+        const chatEl = document.getElementById('chat');
+        const inputEl = document.getElementById('msgInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusDot = document.getElementById('connectionStatus');
+
+        function connect() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                isConnected = true;
+                statusDot.classList.add('connected');
+                inputEl.disabled = false;
+                sendBtn.disabled = false;
+                addLog("Connected to server.");
+            };
+
+            socket.onclose = () => {
+                isConnected = false;
+                statusDot.classList.remove('connected');
+                inputEl.disabled = true;
+                sendBtn.disabled = true;
+                addLog("Disconnected. Reconnecting...");
+                setTimeout(connect, 2000);
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleEvent(data);
+            };
+        }
+
+        function handleEvent(data) {
+            if (data.type === 'log') {
+                if (data.message.includes("LLM Suggested Action")) {
+                    const action = data.message.replace("LLM Suggested Action:", "").trim();
+                    addMessage(action, 'ai');
+                } else {
+                    addLog(data.message);
+                }
+            } else if (data.type === 'screenshot') {
+                const img = document.getElementById('liveView');
+                const placeholder = document.getElementById('placeholder');
+                img.src = `data:image/jpeg;base64,${data.data}`;
+                img.style.display = 'block';
+                placeholder.style.display = 'none';
+            } else if (data.type === 'status') {
+                // status: working, awaiting_input, stopped, error
+                console.log("Status:", data.status);
+                if (data.status === 'working') {
+                    setInputState(false);
+                    statusDot.className = 'status-dot Working';
+                } else if (data.status === 'awaiting_input') {
+                    setInputState(true);
+                    statusDot.className = 'status-dot connected';
+                } else if (data.status === 'stopped') {
+                    // Reset UI
+                    setInputState(true);
+                    statusDot.className = 'status-dot'; // disconnected visual basically
+                }
+            } else if (data.type === 'error') {
+                addLog(`Error: ${data.message}`);
+                setInputState(true);
+            }
+        }
+
+        function setInputState(enabled) {
+            inputEl.disabled = !enabled;
+            sendBtn.disabled = !enabled;
+            if (enabled) {
+                inputEl.focus();
+                sendBtn.innerText = "Send";
+            } else {
+                sendBtn.innerText = "Thinking...";
+            }
+        }
+
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            chatEl.appendChild(div);
+            chatEl.scrollTop = chatEl.scrollHeight;
+        }
+
+        function addLog(text) {
+            const div = document.createElement('div');
+            div.className = `message log`;
+            div.textContent = `> ${text}`;
+            chatEl.appendChild(div);
+            chatEl.scrollTop = chatEl.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            addMessage(text, 'user');
+            inputEl.value = '';
+
+            // For now, we use the start API. true chat requires a richer API.
+            // But for "I want to do X", this works.
+            await fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task: text })
+            });
+        }
+
+        document.getElementById('stopBtn').onclick = async () => {
+            await fetch('/api/stop', { method: 'POST' });
+            addLog("Stop signal sent.");
+        };
+
+        // Memory Logic
+        const memModal = document.getElementById('memoryModal');
+        const memList = document.getElementById('memoryList');
+
+        document.getElementById('memoryBtn').onclick = async () => {
+            memModal.style.display = 'flex';
+            // Load data
+            const res = await fetch('/api/memory');
+            const data = await res.json();
+
+            renderMemoryList(data);
+        };
+
+        function renderMemoryList(data) {
+            memList.innerHTML = '';
+            for (const [key, value] of Object.entries(data)) {
+                addMemoryItem(key, value);
+            }
+        }
+
+        function addMemoryItem(key = '', value = '') {
+            const div = document.createElement('div');
+            div.style.marginBottom = '10px';
+            div.style.borderBottom = '1px solid #30363d';
+            div.style.paddingBottom = '5px';
+
+            div.innerHTML = `
+                <div style="display:flex; gap:5px; margin-bottom:5px;">
+                    <input type="text" class="mem-key" value="${key}" placeholder="Key (e.g. Phone)" style="flex:1; background:#0d1117; border:1px solid #30363d; color:#8b949e; padding:5px;">
+                    <button class="del-mem-btn" style="background:#da3633; padding:0 8px;">&times;</button>
+                </div>
+                <textarea class="mem-val" placeholder="Value" style="width:100%; height:40px; background:#0d1117; border:1px solid #30363d; color:white; padding:5px; resize:vertical;">${value}</textarea>
+            `;
+
+            div.querySelector('.del-mem-btn').onclick = () => {
+                div.remove();
+            };
+
+            memList.appendChild(div);
+        }
+
+        document.getElementById('addMemKeyBtn').onclick = () => {
+            addMemoryItem();
+        };
+
+        document.getElementById('closeMemBtn').onclick = () => {
+            memModal.style.display = 'none';
+        };
+
+        document.getElementById('saveMemBtn').onclick = async () => {
+            const newData = {};
+            const items = memList.children;
+
+            for (let item of items) {
+                const key = item.querySelector('.mem-key').value.trim();
+                const val = item.querySelector('.mem-val').value.trim();
+                if (key) {
+                    newData[key] = val;
+                }
+            }
+
+            await fetch('/api/memory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newData)
+            });
+
+            memModal.style.display = 'none';
+            addLog("Memory saved.");
+        };
+
+        // Settings Logic
+        const setModal = document.getElementById('settingsModal');
+        const providerSel = document.getElementById('setProvider');
+        const secLm = document.getElementById('sectionLMStudio');
+        const secGem = document.getElementById('sectionGemini');
+
+        providerSel.onchange = () => {
+            if (providerSel.value === 'lm_studio') {
+                secLm.style.display = 'block';
+                secGem.style.display = 'none';
+            } else {
+                secLm.style.display = 'none';
+                secGem.style.display = 'block';
+            }
+        };
+
+        document.getElementById('settingsBtn').onclick = async () => {
+            setModal.style.display = 'flex';
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+
+            providerSel.value = data.provider;
+            document.getElementById('setLmUrl').value = data.lm_studio_url;
+            document.getElementById('setLmModel').value = data.lm_studio_model;
+            document.getElementById('setGemApiKey').value = data.gemini_api_key;
+            document.getElementById('setGemModel').value = data.gemini_model;
+
+            providerSel.onchange(); // Trigger UI update
+        };
+
+        document.getElementById('closeSetBtn').onclick = () => {
+            setModal.style.display = 'none';
+        };
+
+        document.getElementById('saveSetBtn').onclick = async () => {
+            const data = {
+                provider: providerSel.value,
+                lm_studio_url: document.getElementById('setLmUrl').value,
+                lm_studio_model: document.getElementById('setLmModel').value,
+                gemini_api_key: document.getElementById('setGemApiKey').value,
+                gemini_model: document.getElementById('setGemModel').value
+            };
+
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            setModal.style.display = 'none';
+            addLog("Settings saved. Please ensure Agent is not running for changes to fully apply.");
+        };
+
+        sendBtn.onclick = sendMessage;
+        inputEl.onkeypress = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        };
+
+        connect();
+    </script>
+
+</body>
+
+</html>
