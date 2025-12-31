@@ -43,64 +43,79 @@ Think of it as "Selenium meets ChatGPT" - but the AI decides what to do next.
 
 ## 🚀 Quick Start
 
+### One-Click Installation
+
+**We've made it dead simple.** No Python, no terminal commands, no configuration.
+
+#### Mac Users
+1. Download `Browser Agent.app` from [Releases](https://github.com/CloudCorpRecords/browserboi/releases)
+2. Double-click to launch
+3. That's it! The app handles everything automatically:
+   - Creates Python virtual environment
+   - Installs all dependencies
+   - Starts the server
+   - Opens the dashboard
+
+#### Windows Users
+1. Download `Browser Agent.exe` from [Releases](https://github.com/CloudCorpRecords/browserboi/releases)
+2. Double-click to launch
+3. Done! Same automatic setup as Mac
+
+### First Run
+1. The app will show a loading screen while it sets up (first time only)
+2. Dashboard opens automatically at `http://localhost:8000`
+3. Click **Settings** to configure your LLM:
+   - **LM Studio** (recommended for privacy): Download from https://lmstudio.ai
+   - **Gemini** (cloud): Add your API key from https://aistudio.google.com
+4. Start giving commands!
+
+### Example Commands
+```
+"Research the top 5 AI startups and take screenshots"
+"Go to Hacker News and summarize the top 3 stories"
+"Fill out the contact form on example.com"
+```
+
+## 🛠️ For Developers
+
+Want to modify the code or run from source?
+
 ### Prerequisites
 - Python 3.13+
-- Node.js 18+ (for Electron launcher)
-- LM Studio or OpenAI API key
+- Node.js 18+ (for Electron)
+- LM Studio or Gemini API key
 
-### Installation
+### Running from Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/CloudCorpRecords/browserboi.git
 cd browserboi
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install Playwright browsers
-playwright install chromium
-```
-
-### Running the Agent
-
-**Option 1: Simple Terminal Launch (Mac/Linux)**
-```bash
-./START_BROWSER_AGENT.command
-```
-
-**Option 2: Electron App (Cross-Platform)**
-```bash
+# Option 1: Run the Electron app (recommended)
 cd launcher
 npm install
 npm start
-```
 
-**Option 3: Manual Start**
-```bash
+# Option 2: Run server only (terminal-based)
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
 python -m uvicorn browser_agent.server.main:app --host 0.0.0.0 --port 8000
 ```
 
-Then open http://localhost:8000 in your browser.
+### Building the App
 
-### Configuration
+```bash
+cd launcher
+npm install
+npm run build
 
-1. **Set up your LLM**:
-   - Open Settings in the web UI
-   - Choose LM Studio (local) or Gemini (cloud)
-   - For LM Studio: Install from https://lmstudio.ai and run a model
-   - For Gemini: Add your API key
-
-2. **Give it a task**:
-   ```
-   "Research the top 5 AI startups and take screenshots of their homepages"
-   ```
-
-The agent will autonomously navigate, research, and complete the task.
+# Outputs:
+# Mac: dist/mac-arm64/Browser Agent.app
+# Windows: dist/Browser Agent 1.0.0.exe
+```
 
 ## 🏗️ Architecture
 
