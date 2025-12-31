@@ -1,6 +1,6 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 import asyncio
 import json
@@ -17,7 +17,7 @@ app = FastAPI()
 memory_manager = MemoryManager()
 settings_manager = SettingsManager()
 
-# Mount static files
+# Mount static files with no caching
 app.mount("/static", StaticFiles(directory="browser_agent/server/static"), name="static")
 
 class TaskRequest(BaseModel):
@@ -148,7 +148,19 @@ async def health_check():
 
 @app.get("/")
 async def read_index():
-    return FileResponse("browser_agent/server/static/index.html")
+    """Serve index.html with no-cache headers to prevent stale frontend code."""
+    file_path = "browser_agent/server/static/index.html"
+    with open(file_path, "r") as f:
+        content = f.read()
+    
+    return HTMLResponse(
+        content=content,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 @app.post("/api/start/{instance_id}")
 async def start_agent(instance_id: int, request: TaskRequest):

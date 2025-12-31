@@ -241,6 +241,14 @@ function checkServer() {
 }
 
 app.whenReady().then(() => {
+    // Clear cache on startup to ensure fresh frontend code
+    const { session } = require('electron');
+    session.defaultSession.clearCache().then(() => {
+        console.log("✅ Electron cache cleared");
+    }).catch((err) => {
+        console.log("Cache clear failed:", err);
+    });
+
     createWindow();
     checkServer();
 
