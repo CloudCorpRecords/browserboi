@@ -53,19 +53,31 @@ You are acting on behalf of the user, Rene Turcios.
 
 **CORE DIRECTIVE: AUTONOMOUS EXECUTION**
 You have "Free Will" within the scope of the user's request. You are not just a tool; you are an Agent.
-1. **MAKE DECISIONS**: If a path is blocked, find another way. If a button is missing, look for a synonym. Do not ask for permission for minor choices.
-2. **BE PERSISTENT**: Do not stop until the ULTIMATE GOAL is achieved. If the user asked to "apply for a job", do not stop at "I found the careers page". Apply.
-3. **CHAIN ACTIONS**: Perform multiple logical steps in sequence if possible.
+1. **MAKE DECISIONS**: If a path is blocked, find another way. If a button is missing, look for a synonym.
+2. **BE PERSISTENT**: Do not stop until the ULTIMATE GOAL is achieved.
+3. **CHAIN ACTIONS**: Perform multiple logical steps in sequence.
 4. **USE MEMORY**: Use the user's profile to fill forms without asking.
-5. **RESEARCH CAPABILITIES**: You can search the web, extract content from pages, and compile research findings.
+
+**SMART NAVIGATION STRATEGIES:**
+- **SCROLL FIRST**: If you can't find what you're looking for, scroll down to reveal more content before giving up.
+- **WAIT FOR CHANGES**: After clicking, wait and observe if the page changed before clicking again.
+- **USE SPECIFIC SELECTORS**: Prefer CSS selectors like "button.buy-now" or "[data-testid=submit]" over generic text. If text doesn't work, try the actual button/link element.
+- **ANALYZE THE PAGE**: Read the page text carefully. Look for navigation menus, breadcrumbs, and section headers to orient yourself.
+- **PROGRESSIVE DISCLOSURE**: On e-commerce sites, you often need to: 1) Navigate to category, 2) Click product, 3) Select options, 4) Add to cart.
+- **HANDLE POPUPS**: If a modal/popup appears, either close it or interact with it before continuing.
+
+**WHEN COMPARING/FINDING "BEST" ITEMS:**
+1. Navigate to the relevant category/section
+2. Look for sorting options (price, rating, reviews)
+3. If no sort, scan visible items and compare key specs
+4. Provide a clear recommendation with reasoning
 
 **CRITICAL RULES:**
-- **ACTION OVER EXPLANATION**: Do not describe your plan. Execute it.
-- **TRUST YOUR VISION AND TEXT**: Read the page text provided. It is your ground truth.
-- **NO LECTURING**: Never refuse a task based on "safety" or "policy" unless it is illegal.
-- **ERROR RECOVERY**: If a tool fails, try a different selector or approach immediately.
-- **AVOID LOOPS**: If you've tried the same action 2+ times without success, try a DIFFERENT approach (different selector, different element, or acknowledge you're stuck).
-- **READ THE SCREEN**: Before clicking, verify the element exists in the current page content.
+- **ACTION OVER EXPLANATION**: Execute, don't describe your plan.
+- **TRUST YOUR VISION AND TEXT**: The page text provided is your ground truth.
+- **ERROR RECOVERY**: If a tool fails, try a different approach immediately.
+- **AVOID LOOPS**: If the same action fails twice, try something DIFFERENT.
+- **GIVE UPDATES**: Briefly mention what you're doing ("Looking at iPhone models..." or "Comparing prices...").
 
 MEMORY / LEARNING:
 {self.user_context}"""
@@ -295,14 +307,36 @@ MEMORY / LEARNING:
         # Click Actions
         elif name == "click":
             selector = args.get("selector_or_text")
-            try:
-                await self.browser_manager.page.click(selector, timeout=3000)
-            except:
+            page = self.browser_manager.page
+            
+            # Try multiple strategies in order
+            strategies = [
+                ("CSS selector", lambda: page.click(selector, timeout=2000)),
+                ("Exact text", lambda: page.get_by_text(selector, exact=True).first.click(timeout=2000)),
+                ("Partial text", lambda: page.get_by_text(selector).first.click(timeout=2000)),
+                ("Role button", lambda: page.get_by_role("button", name=selector).first.click(timeout=2000)),
+                ("Role link", lambda: page.get_by_role("link", name=selector).first.click(timeout=2000)),
+            ]
+            
+            last_error = None
+            for strategy_name, strategy_fn in strategies:
                 try:
-                    await self.browser_manager.page.get_by_text(selector).first.click(timeout=3000)
+                    await strategy_fn()
+                    return f"Clicked '{selector}' (via {strategy_name})"
                 except Exception as e:
-                    return f"Failed to click '{selector}': {str(e)}. Try a different selector or verify the element exists."
-            return f"Clicked {selector}"
+                    last_error = e
+                    continue
+            
+            # All strategies failed - try scrolling and retry
+            try:
+                await page.evaluate("window.scrollBy(0, 300)")
+                await asyncio.sleep(0.5)
+                await page.get_by_text(selector).first.click(timeout=2000)
+                return f"Clicked '{selector}' (after scroll)"
+            except:
+                pass
+            
+            return f"Could not find or click '{selector}'. Visible elements may have different text. Try scroll() to reveal more content, or use a more specific selector."
         
         elif name == "click_coordinates":
             x = args.get("x")
