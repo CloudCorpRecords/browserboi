@@ -160,12 +160,18 @@ MEMORY / LEARNING:
             response_msg = self.llm.chat(self.history, tools=BROWSER_TOOLS)
             
             if not response_msg:
-                self.log("Error: No response from LLM", "error")
+                self.emit_message("❌ Failed to get response from LLM. Please check if LM Studio is running.", "error")
+                self.log("Error: No response from LLM - is LM Studio running?", "error")
                 break
             
             # Handle Error Dictionaries
             if isinstance(response_msg, dict) and "error" in response_msg:
-                self.log(f"LLM Error: {response_msg['error']}", "error")
+                error_msg = response_msg['error']
+                if "timeout" in error_msg.lower():
+                    self.emit_message("⏱️ Request timed out. LM Studio might be overloaded. Try a simpler request.", "error")
+                else:
+                    self.emit_message(f"❌ LLM Error: {error_msg[:100]}", "error")
+                self.log(f"LLM Error: {error_msg}", "error")
                 break
             
             # Add Assistant Response to history

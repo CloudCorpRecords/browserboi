@@ -95,6 +95,45 @@ function showGridView() {
     updateGridLayout();
 }
 
+async function killZombieProcesses() {
+    /**
+     * Kill any zombie processes from previous runs.
+     * This is critical for self-healing - ensures clean slate on startup.
+     */
+    const { exec } = require('child_process');
+
+    return new Promise((resolve) => {
+        console.log("🧹 Cleaning up zombie processes...");
+        if (mainWindow) {
+            mainWindow.webContents.send('log-message', "🧹 Cleaning up previous sessions...");
+        }
+
+        const cleanupCommands = process.platform === 'win32'
+            ? [
+                'taskkill /F /IM python.exe 2>nul',
+                'taskkill /F /IM chromium.exe 2>nul'
+            ]
+            : [
+                'pkill -f "uvicorn browser_agent" 2>/dev/null || true',
+                'pkill -f "python.*browser_agent" 2>/dev/null || true'
+            ];
+
+        let completed = 0;
+        cleanupCommands.forEach(cmd => {
+            exec(cmd, () => {
+                completed++;
+                if (completed === cleanupCommands.length) {
+                    console.log("✅ Zombie cleanup complete");
+                    resolve();
+                }
+            });
+        });
+
+        // Timeout fallback
+        setTimeout(resolve, 3000);
+    });
+}
+
 function killPortProcess(port) {
     return new Promise((resolve) => {
         const { exec } = require('child_process');
@@ -131,6 +170,8 @@ async function startPythonServer() {
         return;
     }
 
+    // Self-healing: Kill any zombie processes first
+    await killZombieProcesses();
     await killPortProcess(8000);
 
     const HARDCODED_ROOT = '/Users/reneturcios/browser';

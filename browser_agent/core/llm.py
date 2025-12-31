@@ -44,7 +44,8 @@ class LLMService:
             return self._chat_gemini(messages, tools)
         return {"error": "Invalid Provider"}
 
-    def _chat_openai(self, messages: list, tools: list = None):
+    def _chat_openai(self, messages: list, tools: list = None, timeout: int = 120):
+        """Chat with LM Studio with timeout for self-healing."""
         if not self.client:
             return {"error": "No Client"}
 
@@ -53,7 +54,8 @@ class LLMService:
             kwargs = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": 1000
+                "max_tokens": 1000,
+                "timeout": timeout  # Prevent indefinite hangs
             }
             if tools:
                 kwargs["tools"] = tools
@@ -61,8 +63,12 @@ class LLMService:
             response = self.client.chat.completions.create(**kwargs)
             return response.choices[0].message
         except Exception as e:
-            logger.error(f"LLM Error (OpenAI): {e}")
-            return None
+            error_msg = str(e)
+            if "timeout" in error_msg.lower():
+                logger.error(f"LLM Timeout after {timeout}s - LM Studio may be overloaded")
+            else:
+                logger.error(f"LLM Error (OpenAI): {e}")
+            return {"error": error_msg}
 
     def _convert_tools_to_gemini(self, tools: list):
         """

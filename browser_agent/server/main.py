@@ -137,6 +137,15 @@ async def diagnostic():
             "traceback": traceback.format_exc()
         }
 
+@app.get("/api/health")
+async def health_check():
+    """Simple health check endpoint for self-healing."""
+    return {
+        "status": "ok",
+        "active_agents": len(active_agents),
+        "timestamp": __import__('time').time()
+    }
+
 @app.get("/")
 async def read_index():
     return FileResponse("browser_agent/server/static/index.html")

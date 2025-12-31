@@ -305,17 +305,26 @@
         const wsUrl = `${wsProtocol}//${window.location.host}/ws`;  // Use default instance
         let socket;
         let isConnected = false;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
 
         const chatEl = document.getElementById('chat');
         const inputEl = document.getElementById('msgInput');
         const sendBtn = document.getElementById('sendBtn');
         const statusDot = document.getElementById('connectionStatus');
 
+        function getReconnectDelay() {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+            return delay;
+        }
+
         function connect() {
             socket = new WebSocket(wsUrl);
 
             socket.onopen = () => {
                 isConnected = true;
+                reconnectAttempts = 0; // Reset on successful connection
                 statusDot.classList.add('connected');
                 inputEl.disabled = false;
                 sendBtn.disabled = false;
@@ -327,8 +336,15 @@
                 statusDot.classList.remove('connected');
                 inputEl.disabled = true;
                 sendBtn.disabled = true;
-                addLog("Disconnected. Reconnecting...");
-                setTimeout(connect, 2000);
+
+                reconnectAttempts++;
+                const delay = getReconnectDelay();
+                addLog(`Disconnected. Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+                setTimeout(connect, delay);
+            };
+
+            socket.onerror = (err) => {
+                console.error('[WS] Error:', err);
             };
 
             socket.onmessage = (event) => {
