@@ -59,7 +59,7 @@ class BrowserManager:
             return await self.page.content()
         return ""
 
-    async def screenshot(self, path: str):
+    async def screenshot(self, path: str, quality: int = 50):
         """Takes a screenshot of the current page."""
         if self.page:
             try:
@@ -68,6 +68,6 @@ class BrowserManager:
                 # assuming the action (click/nav) already waited reasonably.
                 # safe fallback:
                 # await self.page.wait_for_load_state("domcontentloaded", timeout=2000)
-                await self.page.screenshot(path=path, type="jpeg", quality=50)
+                await self.page.screenshot(path=path, type="jpeg", quality=quality)
             except Exception as e:
                 print(f"Screenshot warning: {e}")
