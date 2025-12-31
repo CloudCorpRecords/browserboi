@@ -72,8 +72,12 @@ MEMORY / LEARNING:
             self.event_callback({"type": "log", "message": message, "level": level})
 
     def emit_message(self, content: str, role: str = "ai"):
+        print(f"[AGENT DEBUG] emit_message called: {content[:50]}...")
         if self.event_callback:
+            print(f"[AGENT DEBUG] Calling event_callback with message type")
             self.event_callback({"type": "message", "role": role, "content": content})
+        else:
+            print(f"[AGENT DEBUG] No event_callback set!")
 
     async def start(self):
         if not self.started:

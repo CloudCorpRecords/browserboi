@@ -338,12 +338,15 @@
         }
 
         function handleEvent(data) {
+            console.log('[WS] Received event:', data);
             if (data.type === 'message') {
+                console.log('[WS] MESSAGE received:', data.content);
                 addMessage(data.content, data.role || 'ai');
             } else if (data.type === 'log') {
-                if (data.message.indexOf("LLM Suggested Action") !== -1 || data.message.indexOf("Assistant:") === 0) {
-                    const cleanMsg = data.message.replace("LLM Suggested Action:", "").replace("Assistant:", "").trim();
-                    if (cleanMsg) addMessage(cleanMsg, 'ai');
+                // Skip Assistant logs - they're already handled by 'message' type events
+                if (data.message.indexOf("Assistant:") === 0) {
+                    // Already displayed via message event, just log to console
+                    console.log('[WS] Skipping duplicate Assistant log');
                 } else {
                     addLog(data.message);
                 }
