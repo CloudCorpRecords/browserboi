@@ -6,8 +6,12 @@ from ..utils.logger import setup_logger
 
 logger = setup_logger("memory")
 
-MEMORY_FILE = "user_data.json"
-RESEARCH_FILE = "research_data.json"
+# Base directory for the data folder
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+MEMORY_FILE = os.path.join(DATA_DIR, "user_data.json")
+RESEARCH_FILE = os.path.join(DATA_DIR, "research_data.json")
 
 class MemoryManager:
     def __init__(self):

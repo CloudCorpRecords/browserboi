@@ -12,12 +12,16 @@ from ..utils.logger import setup_logger
 
 logger = setup_logger("data_export")
 
+# Base data directory
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+DEFAULT_OUTPUT_DIR = os.path.join(DATA_DIR, "exports")
+
 class DataExporter:
     """Handles exporting research data to various formats."""
     
-    def __init__(self, export_dir: str = "research_exports"):
+    def __init__(self, export_dir: str = DEFAULT_OUTPUT_DIR):
         self.export_dir = export_dir
-        os.makedirs(export_dir, exist_ok=True)
+        os.makedirs(self.export_dir, exist_ok=True)
     
     def export_to_json(self, data: Dict, filename: str = None) -> str:
         """

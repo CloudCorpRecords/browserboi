@@ -59,8 +59,10 @@ MEMORY / LEARNING:
         ]
         self.log("Agent initialized.")
         
-        # Ensure screenshots directory exists
-        os.makedirs("screenshots", exist_ok=True)
+        # Data directory for screenshots
+        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        self.screenshots_dir = os.path.join(self.data_dir, "screenshots")
+        os.makedirs(self.screenshots_dir, exist_ok=True)
 
     async def start(self):
         await self.browser_manager.start()
@@ -75,13 +77,9 @@ MEMORY / LEARNING:
             if self.browser_manager.page:
                 try:
                     # using a separate path for stream to avoid conflicts? 
-                    # actually fine to overwrite or use memory.
-                    # writing to file is slow for streaming. 
-                    # Better: get bytes directly.
-                    # But browser_manager.screenshot writes to file.
-                    # Let's verify browser.py again.
-                    await self.browser_manager.screenshot("screenshots/current_state.jpg")
-                    self.emit_screenshot("screenshots/current_state.jpg")
+                    current_path = os.path.join(self.screenshots_dir, "current_state.jpg")
+                    await self.browser_manager.screenshot(current_path)
+                    self.emit_screenshot(current_path)
                 except Exception as e:
                     # Ignore errors during stream (e.g. browser closing)
                     pass
@@ -115,7 +113,7 @@ MEMORY / LEARNING:
         self.manage_memory() # Optimize before adding new info
         
         # 1. Capture State for the context
-        screenshot_path = "screenshots/current_state.png"
+        screenshot_path = os.path.join(self.screenshots_dir, "current_state.png")
         await self.browser_manager.screenshot(screenshot_path)
         self.emit_screenshot(screenshot_path)
         

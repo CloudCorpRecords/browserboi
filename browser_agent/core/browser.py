@@ -4,6 +4,9 @@ import os
 import asyncio
 from typing import Optional, List
 
+# Base directory for the data folder
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
 class BrowserManager:
     def __init__(self, headless: bool = True):
         self.headless = headless
@@ -12,6 +15,8 @@ class BrowserManager:
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.tabs: List[Page] = []  # Track multiple tabs
+        # State file for cookies/session
+        self.state_file = os.path.join(DATA_DIR, "browser_state.json")
 
     async def start(self):
         """Starts the Playwright browser session."""
@@ -25,7 +30,7 @@ class BrowserManager:
         )
         
         # Load storage state if exists (cookies, local storage)
-        storage_state = "browser_state.json" if os.path.exists("browser_state.json") else None
+        storage_state = self.state_file if os.path.exists(self.state_file) else None
         
         # Set a fixed viewport to ensure content acts like a desktop
         viewport = {"width": 1280, "height": 800}

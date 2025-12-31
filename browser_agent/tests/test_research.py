@@ -5,8 +5,8 @@ import asyncio
 import sys
 import os
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path (two levels up from browser_agent/tests/)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from browser_agent.core.research_tools import get_research_tools
 from browser_agent.core.memory import MemoryManager

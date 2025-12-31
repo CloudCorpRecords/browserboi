@@ -4,7 +4,11 @@ from ..utils.logger import setup_logger
 
 logger = setup_logger("settings")
 
-SETTINGS_FILE = "settings.json"
+# Base directory for the data folder
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
 DEFAULT_SETTINGS = {
     "provider": "lm_studio",  # or "gemini"
