@@ -293,7 +293,6 @@
                     <option value="gemini-3-pro-preview">Gemini 3 Pro (Preview)</option>
                 </select>
             </div>
-
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
                 <button id="closeSetBtn" style="background:#30363d;">Close</button>
                 <button id="saveSetBtn" style="background:#2ea043;">Save</button>
@@ -303,7 +302,7 @@
 
     <script>
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;  // Use default instance
         let socket;
         let isConnected = false;
 
@@ -400,23 +399,25 @@
         }
 
         async function sendMessage() {
-            const text = inputEl.value.trim();
-            if (!text) return;
+            const msg = inputEl.value.trim();
+            if (!msg) return;
 
-            addMessage(text, 'user');
+            addMessage(msg, 'user');
             inputEl.value = '';
 
-            // For now, we use the start API. true chat requires a richer API.
-            // But for "I want to do X", this works.
-            await fetch('/api/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ task: text })
-            });
+            try {
+                await fetch('/api/start/1', {  // Send to instance 1
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task: msg })
+                });
+            } catch (e) {
+                addMessage('Error: ' + e.message, 'system');
+            }
         }
 
         document.getElementById('stopBtn').onclick = async () => {
-            await fetch('/api/stop', { method: 'POST' });
+            await fetch('/api/stop/1', { method: 'POST' });  // Stop instance 1
             addLog("Stop signal sent.");
         };
 

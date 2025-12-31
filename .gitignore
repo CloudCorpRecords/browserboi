@@ -10,3 +10,7 @@ brain/
 artifacts/
 current_state.png
 current_state.jpg
+screenshots/
+debug/
+*.log
+state_*.png

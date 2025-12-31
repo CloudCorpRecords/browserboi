@@ -14,16 +14,25 @@ class BrowserManager:
     async def start(self):
         """Starts the Playwright browser session."""
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=self.headless)
+        
+        # ALWAYS run headless for Electron embedding
+        # Enable CDP for remote control
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=['--remote-debugging-port=9222']
+        )
         
         # Load storage state if exists (cookies, local storage)
         storage_state = "browser_state.json" if os.path.exists("browser_state.json") else None
         
+        # Set a fixed viewport to ensure content acts like a desktop
+        viewport = {"width": 1280, "height": 800}
+        
         if storage_state:
-            self.context = await self.browser.new_context(storage_state=storage_state)
+            self.context = await self.browser.new_context(storage_state=storage_state, viewport=viewport)
             print("Loaded browser state (cookies).")
         else:
-            self.context = await self.browser.new_context()
+            self.context = await self.browser.new_context(viewport=viewport)
             
         self.page = await self.context.new_page()
 
@@ -47,9 +56,14 @@ class BrowserManager:
         if self.page:
             try:
                 await self.page.goto(url)
-                # networkidle is too slow often (wait 500ms for no network).
-                # domcontentloaded is faster.
-                await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                # networkidle is better for SPAs but can be slow. 
+                # using domcontentloaded + small sleep is often a good balance, 
+                # but let's try networkidle first to ensure page is "ready".
+                try:
+                    await self.page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    # Fallback if network never idles
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
             except Exception as e:
                 print(f"Navigation warning: {e}")
 
@@ -59,15 +73,24 @@ class BrowserManager:
             return await self.page.content()
         return ""
 
-    async def screenshot(self, path: str, quality: int = 50):
+    async def get_body_text(self) -> str:
+        """Returns the visible text content of the body."""
+        if self.page:
+            try:
+                # limited to 10k chars to avoid token limits
+                text = await self.page.inner_text("body", timeout=1000)
+                return text[:10000] 
+            except Exception as e:
+                print(f"Error getting text: {e}")
+        return ""
+
+    async def screenshot(self, path: str, quality: int = 85):
         """Takes a screenshot of the current page."""
         if self.page:
             try:
-                # Just wait a tiny bit for animations/rendering if needed, but rely on previous action wait.
-                # Removing explicit strict wait here to speed up viewing,
-                # assuming the action (click/nav) already waited reasonably.
-                # safe fallback:
-                # await self.page.wait_for_load_state("domcontentloaded", timeout=2000)
+                # specific fix for "white screen" - sometimes needed for headless chrome
+                # await self.page.evaluate("document.fonts.ready") 
+                
                 await self.page.screenshot(path=path, type="jpeg", quality=quality)
             except Exception as e:
                 print(f"Screenshot warning: {e}")

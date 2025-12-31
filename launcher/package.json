@@ -1,0 +1,54 @@
+{
+    "name": "browser-agent-launcher",
+    "version": "1.0.0",
+    "description": "Game-style launcher for Browser Agent",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "build": "electron-builder -mw"
+    },
+    "build": {
+        "appId": "com.antigravity.browseragent",
+        "productName": "Browser Agent",
+        "directories": {
+            "output": "../dist"
+        },
+        "mac": {
+            "target": "dir"
+        },
+        "win": {
+            "target": "portable"
+        },
+        "extraResources": [
+            {
+                "from": "../venv",
+                "to": "venv",
+                "filter": [
+                    "**/*"
+                ]
+            },
+            {
+                "from": "../browser_agent",
+                "to": "browser_agent",
+                "filter": [
+                    "**/*"
+                ]
+            },
+            {
+                "from": "../browser_state.json",
+                "to": "browser_state.json"
+            },
+            {
+                "from": "../user_data.json",
+                "to": "user_data.json"
+            }
+        ]
+    },
+    "keywords": [],
+    "author": "Antigravity",
+    "license": "ISC",
+    "devDependencies": {
+        "electron": "^34.0.0",
+        "electron-builder": "^26.0.12"
+    }
+}

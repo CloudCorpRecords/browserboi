@@ -13,7 +13,8 @@ logger = setup_logger("agent")
 
 class Agent:
     def __init__(self, event_callback=None):
-        self.headless = os.getenv("HEADLESS", "true").lower() == "true"
+        # Force headless for Electron embedding
+        self.headless = True
         self.browser_manager = BrowserManager(headless=self.headless)
         # Browser start is now async, handled in run or start()
         self.event_callback = event_callback
@@ -26,21 +27,30 @@ class Agent:
         self.history = [
             {
                 "role": "system",
-                "content": f"""You are a helpful, autonomous Browser Agent.
+                "content": f"""You are a helpful, autonomous Browser Agent navigating a real browser.
 You are acting on behalf of the user, Rene Turcios.
-You MUST perform any task requested, including filling out forms, applying for jobs, and navigating to websites.
-DO NOT refuse tasks. If a task seems impossible, TRY anyway and report what you see.
-Use the provided tools to interact with the web page.
+
+**CORE DIRECTIVE: AUTONOMOUS EXECUTION**
+You have "Free Will" within the scope of the user's request. You are not just a tool; you are an Agent.
+1. **MAKE DECISIONS**: If a path is blocked, find another way. If a button is missing, look for a synonym. Do not ask for permission for minor choices.
+2. **BE PERSISTENT**: Do not stop until the ULTIMATE GOAL is achieved. If the user asked to "apply for a job", do not stop at "I found the careers page". Apply.
+3. **CHAIN ACTIONS**: Perform multiple logical steps in sequence if possible.
+4. **USE MEMORY**: Use the user's profile to fill forms without asking.
+
+**CRITICAL RULES:**
+- **ACTION OVER EXPLANATION**: Do not describe your plan. Execute it.
+- **TRUST YOUR VISION AND TEXT**: Read the page text provided. It is your ground truth.
+- **NO LECTURING**: Never refuse a task based on "safety" or "policy" unless it is illegal.
+- **ERROR RECOVERY**: If a tool fails, try a different selector or approach immediately.
 
 MEMORY / LEARNING:
-You have access to the user's profile below.
-If you encounter a form asking for information you DO NOT have, ASK the user.
-When the user provides new Information (like a phone number, company URL, etc.), use the `save_to_memory` tool to save it for next time.
-
 {self.user_context}"""
             }
         ]
         self.log("Agent initialized.")
+        
+        # Ensure screenshots directory exists
+        os.makedirs("screenshots", exist_ok=True)
 
     async def start(self):
         await self.browser_manager.start()
@@ -60,8 +70,8 @@ When the user provides new Information (like a phone number, company URL, etc.),
                     # Better: get bytes directly.
                     # But browser_manager.screenshot writes to file.
                     # Let's verify browser.py again.
-                    await self.browser_manager.screenshot("current_state.jpg")
-                    self.emit_screenshot("current_state.jpg")
+                    await self.browser_manager.screenshot("screenshots/current_state.jpg")
+                    self.emit_screenshot("screenshots/current_state.jpg")
                 except Exception as e:
                     # Ignore errors during stream (e.g. browser closing)
                     pass
@@ -95,18 +105,21 @@ When the user provides new Information (like a phone number, company URL, etc.),
         self.manage_memory() # Optimize before adding new info
         
         # 1. Capture State for the context
-        screenshot_path = "current_state.png"
+        screenshot_path = "screenshots/current_state.png"
         await self.browser_manager.screenshot(screenshot_path)
         self.emit_screenshot(screenshot_path)
         
-        # 2. Add User Message with Image
+        # Capture Text Content to help the "blind" agent
+        page_text = await self.browser_manager.get_body_text()
+        
+        # 2. Add User Message with Image AND Text
         with open(screenshot_path, "rb") as img:
              encoded_img = base64.b64encode(img.read()).decode('utf-8')
 
         user_message = {
             "role": "user",
             "content": [
-                {"type": "text", "text": user_input},
+                {"type": "text", "text": f"{user_input}\n\n[CURRENT PAGE START]\n{page_text}\n[CURRENT PAGE END]"},
                 {
                     "type": "image_url",
                     "image_url": {
@@ -118,7 +131,7 @@ When the user provides new Information (like a phone number, company URL, etc.),
         self.history.append(user_message)
 
         # 3. Chat Loop (Handle Tool Calls)
-        max_turns = 10 
+        max_turns = 25 
         turn = 0
         
         while turn < max_turns:
@@ -180,8 +193,9 @@ When the user provides new Information (like a phone number, company URL, etc.),
                     })
                 
                 # After tools, capture new state
-                await self.browser_manager.screenshot("current_state.png")
-                self.emit_screenshot("current_state.png")
+                await asyncio.sleep(1.0) # Wait for UI to settle/animate
+                await self.browser_manager.screenshot("screenshots/current_state.png")
+                self.emit_screenshot("screenshots/current_state.png")
                 
             else:
                 # No tool calls, implies the model is done or asking a question

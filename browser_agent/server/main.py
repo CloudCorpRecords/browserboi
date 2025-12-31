@@ -36,93 +36,125 @@ class SettingsRequest(BaseModel):
     gemini_api_key: str
     gemini_model: str
 
-# Global state
-active_agent = None
-connected_websockets = set()
-is_agent_busy = False
+# Global state - support up to 9 agents
+active_agents = {}  # instance_id -> Agent
+connected_websockets = {}  # instance_id -> set of websockets
+agent_busy_status = {}  # instance_id -> bool
+MAX_AGENTS = 9
 
-def broadcast_event(event):
-    """Helper to send event to all connected websockets"""
+def get_or_create_agent(instance_id: int):
+    """Get existing agent or create new one for this instance"""
+    if instance_id not in active_agents:
+        if len(active_agents) >= MAX_AGENTS:
+            raise ValueError(f"Maximum {MAX_AGENTS} agents reached")
+        
+        def event_callback(event):
+            broadcast_event(instance_id, event)
+        
+        active_agents[instance_id] = Agent(event_callback=event_callback)
+        connected_websockets[instance_id] = set()
+        agent_busy_status[instance_id] = False
+    
+    return active_agents[instance_id]
+
+def broadcast_event(instance_id: int, event):
+    """Helper to send event to all connected websockets for this instance"""
     message = json.dumps(event)
+    if instance_id not in connected_websockets:
+        return
+    
     to_remove = set()
-    for ws in connected_websockets:
+    for ws in connected_websockets[instance_id]:
         try:
-            # We are in the event loop, so just await send_text?
-            # broadcast_event is passed as callback to Agent.
-            # Agent calls it from async methods?
-            # Wait, Agent calls `self.log` which calls `event_callback`.
-            # If Agent is async, it can await the callback if it was async.
-            # But the callback is currently sync in Agent:
-            # def log(...): ... if self.event_callback: self.event_callback(...)
-            # So broadcast_event is called synchronously.
-            # We need to schedule the send_text on the loop.
-            
-            # Since we are running in the main thread's loop (uvicorn), 
-            # we can just use create_task or ensure_future? 
-            # Or use loop.call_soon_threadsafe if we were in a thread, but we are not anymore.
-            
-            # Problem: `broadcast_event` is NOT async in the signature expected by Agent?
-            # Agent.py: `self.event_callback({"type":...})` -> calls this.
-            # This function uses `asyncio.run_coroutine_threadsafe` in the old threaded code.
-            # In async code, we should probably just use `asyncio.create_task(ws.send_text(message))`?
-            # But `ws.send_text` is a coroutine.
-            
-            # Let's try `asyncio.create_task`.
+            # Use asyncio.create_task to send without blocking
             task = asyncio.create_task(ws.send_text(message))
-            # We don't await it here to avoid blocking execution?
-            # But we need to handle exceptions.
-            task.add_done_callback(lambda t: t.exception()) 
+            task.add_done_callback(lambda t: t.exception() if t.exception() else None) 
         except Exception:
             to_remove.add(ws)
+    
+    # Remove disconnected websockets
     for ws in to_remove:
-        connected_websockets.remove(ws)
+        connected_websockets[instance_id].discard(ws)
 
-async def run_agent_task(task_prompt):
-    global active_agent, is_agent_busy
-    is_agent_busy = True
+async def run_agent_task(instance_id: int, task_prompt: str):
+    print(f"[DEBUG] Starting task for instance {instance_id}: {task_prompt}")
+    agent_busy_status[instance_id] = True
     try:
-        # If agent exists, reuse it (persistence). If not, create new.
-        if not active_agent:
-            active_agent = Agent(event_callback=broadcast_event)
+        agent = get_or_create_agent(instance_id)
+        print(f"[DEBUG] Agent {instance_id} created/retrieved")
         
         # Broadcast that we are thinking/working
-        broadcast_event({"type": "status", "status": "working"})
+        broadcast_event(instance_id, {"type": "status", "status": "working"})
+        print(f"[DEBUG] Broadcasting working status for instance {instance_id}")
         
-        await active_agent.run(task_prompt)
+        await agent.run(task_prompt)
+        print(f"[DEBUG] Agent {instance_id} completed task")
         
         # When run() returns, it means this turn is done.
-        broadcast_event({"type": "status", "status": "awaiting_input"})
+        broadcast_event(instance_id, {"type": "status", "status": "awaiting_input"})
         
     except Exception as e:
-        broadcast_event({"type": "error", "message": str(e)})
-        broadcast_event({"type": "status", "status": "error"})
+        print(f"[ERROR] Agent {instance_id} failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        broadcast_event(instance_id, {"type": "error", "message": str(e)})
+        broadcast_event(instance_id, {"type": "status", "status": "error"})
     finally:
-        is_agent_busy = False
+        agent_busy_status[instance_id] = False
+        print(f"[DEBUG] Agent {instance_id} task finished")
+
+@app.get("/api/diagnostic")
+async def diagnostic():
+    """Test endpoint to check if agent can initialize"""
+    try:
+        # Test agent creation
+        test_agent = Agent(event_callback=lambda x: None)
+        
+        # Test LLM
+        from browser_agent.core.llm import LLMService
+        llm = LLMService()
+        
+        return {
+            "status": "ok",
+            "agent_initialized": True,
+            "llm_provider": llm.provider,
+            "message": "All systems operational"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 @app.get("/")
 async def read_index():
     return FileResponse("browser_agent/server/static/index.html")
 
-@app.post("/api/start")
-async def start_agent(request: TaskRequest):
-    global is_agent_busy
+@app.post("/api/start/{instance_id}")
+async def start_agent(instance_id: int, request: TaskRequest):
+    if instance_id < 1 or instance_id > MAX_AGENTS:
+        return {"status": "error", "message": f"Invalid instance_id. Must be 1-{MAX_AGENTS}"}
     
-    if is_agent_busy:
-        return {"status": "error", "message": "Agent is busy"}
+    if agent_busy_status.get(instance_id, False):
+        return {"status": "error", "message": f"Agent {instance_id} is busy"}
     
-    asyncio.create_task(run_agent_task(request.task))
-    return {"status": "ok"}
+    asyncio.create_task(run_agent_task(instance_id, request.task))
+    return {"status": "ok", "instance_id": instance_id}
 
-@app.post("/api/stop")
-async def stop_agent():
-    global active_agent, is_agent_busy
-    if active_agent:
-        await active_agent.stop()
-        active_agent = None # Hard reset on stop
-        is_agent_busy = False
-        broadcast_event({"type": "status", "status": "stopped"})
-        return {"status": "ok", "message": "Stop signal sent"}
-    return {"status": "error", "message": "No agent running"}
+@app.post("/api/stop/{instance_id}")
+async def stop_agent(instance_id: int):
+    if instance_id < 1 or instance_id > MAX_AGENTS:
+        return {"status": "error", "message": f"Invalid instance_id. Must be 1-{MAX_AGENTS}"}
+    
+    if instance_id in active_agents:
+        await active_agents[instance_id].stop()
+        del active_agents[instance_id]
+        agent_busy_status[instance_id] = False
+        broadcast_event(instance_id, {"type": "status", "status": "stopped"})
+        return {"status": "ok", "message": f"Agent {instance_id} stopped"}
+    return {"status": "error", "message": f"No agent {instance_id} running"}
 
 @app.get("/api/memory")
 async def get_memory():
@@ -144,11 +176,26 @@ async def save_settings(data: SettingsRequest):
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+@app.websocket("/ws/{instance_id}")
+async def websocket_endpoint(websocket: WebSocket, instance_id: int = 1):
+    """WebSocket for real-time agent updates for specific instance"""
     await websocket.accept()
-    connected_websockets.add(websocket)
+    
+    # Validate instance_id
+    if instance_id < 1 or instance_id > MAX_AGENTS:
+        await websocket.send_json({"type": "error", "message": f"Invalid instance_id. Must be 1-{MAX_AGENTS}"})
+        await websocket.close()
+        return
+    
+    # Add to instance's websocket set
+    if instance_id not in connected_websockets:
+        connected_websockets[instance_id] = set()
+    connected_websockets[instance_id].add(websocket)
+    
     try:
+        await websocket.send_json({"type": "connected", "instance_id": instance_id})
         while True:
-            await websocket.receive_text() # Keep connection open
+            data = await websocket.receive_text()
+            # Keep connection alive
     except WebSocketDisconnect:
-        connected_websockets.remove(websocket)
+        connected_websockets[instance_id].discard(websocket)
