@@ -9,8 +9,13 @@ venv/
 brain/
 artifacts/
 current_state.png
-current_state.jpg
+# Screenshots and debug artifacts
 screenshots/
 debug/
 *.log
+
+# Electron build artifacts
+dist/
+launcher/node_modules/
+launcher/dist/
 state_*.png

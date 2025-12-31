@@ -2,6 +2,8 @@ from .browser import BrowserManager
 from .llm import LLMService
 from .tool_definitions import BROWSER_TOOLS
 from .memory import MemoryManager
+from .research_tools import get_research_tools
+from ..utils.data_export import DataExporter
 from ..utils.logger import setup_logger
 import os
 import time
@@ -20,6 +22,12 @@ class Agent:
         self.event_callback = event_callback
         self.llm = LLMService()
         self.memory = MemoryManager()
+        self.research_tools = get_research_tools()
+        self.data_exporter = DataExporter()
+        
+        # Research session tracking
+        self.current_research_session = None
+        self.research_mode = False
         
         # Load memory for system prompt
         self.user_context = self.memory.get_context_string()
@@ -36,12 +44,14 @@ You have "Free Will" within the scope of the user's request. You are not just a 
 2. **BE PERSISTENT**: Do not stop until the ULTIMATE GOAL is achieved. If the user asked to "apply for a job", do not stop at "I found the careers page". Apply.
 3. **CHAIN ACTIONS**: Perform multiple logical steps in sequence if possible.
 4. **USE MEMORY**: Use the user's profile to fill forms without asking.
+5. **RESEARCH CAPABILITIES**: You can search the web, extract content from pages, and compile research findings. Use these tools for comprehensive research tasks.
 
 **CRITICAL RULES:**
 - **ACTION OVER EXPLANATION**: Do not describe your plan. Execute it.
 - **TRUST YOUR VISION AND TEXT**: Read the page text provided. It is your ground truth.
 - **NO LECTURING**: Never refuse a task based on "safety" or "policy" unless it is illegal.
 - **ERROR RECOVERY**: If a tool fails, try a different selector or approach immediately.
+- **RESEARCH MODE**: For research tasks, start a research session, gather findings from multiple sources, and export results.
 
 MEMORY / LEARNING:
 {self.user_context}"""
@@ -202,9 +212,12 @@ MEMORY / LEARNING:
                 break
 
     async def execute_tool(self, name: str, args: dict):
+        # Core Navigation
         if name == "navigate":
             await self.browser_manager.navigate(args.get("url"))
             return f"Navigated to {args.get('url')}"
+        
+        # Click Actions
         elif name == "click":
             selector = args.get("selector_or_text")
             try:
@@ -215,6 +228,7 @@ MEMORY / LEARNING:
                 except Exception as e:
                     return f"Failed to click '{selector}': {str(e)}"
             return f"Clicked {selector}"
+        
         elif name == "click_coordinates":
             x = args.get("x")
             y = args.get("y")
@@ -223,22 +237,154 @@ MEMORY / LEARNING:
                 return f"Clicked coordinates ({x}, {y})"
             except Exception as e:
                 return f"Failed to click coordinates: {e}"
+        
+        # Input Actions
         elif name == "type_text":
             text = args.get("text")
             await self.browser_manager.page.keyboard.type(text)
             return f"Typed '{text}'"
+        
+        elif name == "fill_input":
+            selector = args.get("selector")
+            text = args.get("text")
+            success = await self.browser_manager.fill_input(selector, text)
+            return f"Filled '{selector}' with '{text}'" if success else f"Failed to fill '{selector}'"
+        
+        elif name == "press_key":
+            key = args.get("key")
+            await self.browser_manager.press_key(key)
+            return f"Pressed key: {key}"
+        
+        # Page Actions
         elif name == "scroll":
             await self.browser_manager.page.mouse.wheel(0, 500)
             return "Scrolled down"
-        elif name == "done":
-            return f"Task Done: {args.get('summary')}"
+        
+        elif name == "wait_for_element":
+            selector = args.get("selector")
+            timeout = args.get("timeout", 5000)
+            success = await self.browser_manager.wait_for_selector(selector, timeout)
+            return f"Element '{selector}' appeared" if success else f"Element '{selector}' did not appear"
+        
+        # File Operations
+        elif name == "upload_file":
+            selector = args.get("selector")
+            file_path = args.get("file_path")
+            success = await self.browser_manager.upload_file(selector, file_path)
+            return f"Uploaded file to '{selector}'" if success else f"Failed to upload file"
+        
+        # Tab Management
+        elif name == "open_new_tab":
+            url = args.get("url")
+            tab_index = await self.browser_manager.new_tab(url)
+            return f"Opened new tab (index {tab_index})" + (f" and navigated to {url}" if url else "")
+        
+        elif name == "switch_tab":
+            index = args.get("index")
+            success = await self.browser_manager.switch_tab(index)
+            return f"Switched to tab {index}" if success else f"Failed to switch to tab {index}"
+        
+        elif name == "close_tab":
+            index = args.get("index")
+            success = await self.browser_manager.close_tab(index)
+            return f"Closed tab {index}" if success else f"Failed to close tab {index}"
+        
+        # Research Tools
+        elif name == "web_search":
+            query = args.get("query")
+            num_results = args.get("num_results", 5)
+            results = self.research_tools.web_search(query, min(num_results, 10))
+            if results:
+                summary = f"Found {len(results)} results for '{query}':\n"
+                for i, result in enumerate(results, 1):
+                    summary += f"{i}. {result['title']} - {result['url']}\n"
+                return summary
+            return f"No results found for '{query}'"
+        
+        elif name == "extract_page_content":
+            url = args.get("url")
+            if url:
+                content = self.research_tools.extract_content(url)
+            else:
+                # Extract from current page
+                html = await self.browser_manager.get_content()
+                current_url = self.browser_manager.page.url if self.browser_manager.page else "unknown"
+                content = self.research_tools.get_page_metadata(html, current_url)
+                content["text"] = await self.browser_manager.get_body_text()
+            
+            if "error" in content:
+                return f"Failed to extract content: {content['error']}"
+            return f"Extracted content from {content.get('title', 'page')}: {content.get('text', '')[:500]}..."
+        
+        elif name == "extract_structured_data":
+            data_type = args.get("data_type")
+            html = await self.browser_manager.get_content()
+            data = self.research_tools.extract_structured_data(html, data_type)
+            return f"Extracted {len(data)} {data_type}(s): {json.dumps(data[:3])}..." if data else f"No {data_type} data found"
+        
+        elif name == "start_research_session":
+            topic = args.get("topic")
+            self.current_research_session = self.memory.create_research_session(topic)
+            self.research_mode = True
+            return f"Started research session '{self.current_research_session}' for topic: {topic}"
+        
+        elif name == "save_research_finding":
+            finding = args.get("finding")
+            source = args.get("source")
+            if not self.current_research_session:
+                self.current_research_session = self.memory.create_research_session("General Research")
+            self.memory.save_research_finding(self.current_research_session, finding, source)
+            return f"Saved research finding: {finding[:100]}..."
+        
+        elif name == "export_research":
+            format_type = args.get("format")
+            filename = args.get("filename")
+            
+            if not self.current_research_session:
+                return "No active research session to export"
+            
+            session_data = self.memory.get_research_session(self.current_research_session)
+            if not session_data:
+                return "Research session not found"
+            
+            # Export based on format
+            if format_type == "json":
+                filepath = self.data_exporter.export_to_json(session_data, filename)
+            elif format_type == "csv":
+                # Convert findings to list of dicts for CSV
+                findings_list = session_data.get("findings", [])
+                filepath = self.data_exporter.export_to_csv(findings_list, filename)
+            elif format_type == "markdown":
+                filepath = self.data_exporter.export_to_markdown(session_data, filename)
+            else:
+                return f"Unknown export format: {format_type}"
+            
+            return f"Exported research to {filepath}"
+        
+        # Memory & Context
         elif name == "save_to_memory":
             key = args.get("key")
             value = args.get("value")
             self.memory.update(key, value)
             return f"Saved to memory: {key} = {value}"
+        
+        elif name == "take_notes":
+            note = args.get("note")
+            if not self.current_research_session:
+                self.current_research_session = self.memory.create_research_session("Notes")
+            self.memory.save_research_finding(self.current_research_session, note)
+            return f"Saved note: {note[:100]}..."
+        
+        # Task Completion
+        elif name == "done":
+            summary = args.get("summary")
+            if self.current_research_session and self.research_mode:
+                self.memory.close_research_session(self.current_research_session)
+                self.research_mode = False
+            return f"Task Done: {summary}"
+        
         else:
-            return "Unknown tool"
+            return f"Unknown tool: {name}"
 
     def manage_memory(self):
         """Prunes history to keep token count manageable."""
