@@ -4,6 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Browser Agent Chat</title>
     <style>
         :root {
@@ -50,8 +53,7 @@
             flex-direction: column;
             background-color: #000;
             position: relative;
-            align-items: center;
-            justify-content: center;
+            overflow: hidden;
         }
 
         /* Header */
@@ -175,14 +177,21 @@
 
         /* Browser View */
         #liveView {
-            max-width: 100%;
-            max-height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
             display: none;
         }
 
         .browser-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             color: var(--text-secondary);
             font-size: 1.2rem;
         }
@@ -367,11 +376,24 @@
                     addLog(data.message);
                 }
             } else if (data.type === 'screenshot') {
+                console.log('[WS] SCREENSHOT received, data length:', data.data ? data.data.length : 0);
                 const img = document.getElementById('liveView');
                 const placeholder = document.getElementById('placeholder');
+
+                // Add error handler
+                img.onerror = function () {
+                    console.error('[WS] Image failed to load!');
+                    placeholder.textContent = 'Image load error';
+                    placeholder.style.display = 'block';
+                };
+                img.onload = function () {
+                    console.log('[WS] Image loaded successfully');
+                };
+
                 img.src = `data:image/jpeg;base64,${data.data}`;
                 img.style.display = 'block';
                 placeholder.style.display = 'none';
+                console.log('[WS] Screenshot applied to img element');
             } else if (data.type === 'status') {
                 // status: working, awaiting_input, stopped, error
                 console.log("Status:", data.status);

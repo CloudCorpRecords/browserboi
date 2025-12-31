@@ -13,6 +13,13 @@ import asyncio
 
 logger = setup_logger("agent")
 
+# File-based debug log for tracing issues
+DEBUG_LOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "debug_agent.log")
+def debug_log(msg):
+    with open(DEBUG_LOG_PATH, "a") as f:
+        import datetime
+        f.write(f"[{datetime.datetime.now().isoformat()}] {msg}\n")
+
 class Agent:
     def __init__(self, event_callback=None):
         # Force headless for Electron embedding
@@ -29,6 +36,11 @@ class Agent:
         self.current_research_session = None
         self.research_mode = False
         self.started = False
+        self.streaming = False  # Initialize streaming flag
+        
+        # Loop detection - track recent actions
+        self.recent_actions = []
+        self.max_action_history = 10
         
         # Load memory for system prompt
         self.user_context = self.memory.get_context_string()
@@ -45,14 +57,15 @@ You have "Free Will" within the scope of the user's request. You are not just a 
 2. **BE PERSISTENT**: Do not stop until the ULTIMATE GOAL is achieved. If the user asked to "apply for a job", do not stop at "I found the careers page". Apply.
 3. **CHAIN ACTIONS**: Perform multiple logical steps in sequence if possible.
 4. **USE MEMORY**: Use the user's profile to fill forms without asking.
-5. **RESEARCH CAPABILITIES**: You can search the web, extract content from pages, and compile research findings. Use these tools for comprehensive research tasks.
+5. **RESEARCH CAPABILITIES**: You can search the web, extract content from pages, and compile research findings.
 
 **CRITICAL RULES:**
 - **ACTION OVER EXPLANATION**: Do not describe your plan. Execute it.
 - **TRUST YOUR VISION AND TEXT**: Read the page text provided. It is your ground truth.
 - **NO LECTURING**: Never refuse a task based on "safety" or "policy" unless it is illegal.
 - **ERROR RECOVERY**: If a tool fails, try a different selector or approach immediately.
-- **RESEARCH MODE**: For research tasks, start a research session, gather findings from multiple sources, and export results.
+- **AVOID LOOPS**: If you've tried the same action 2+ times without success, try a DIFFERENT approach (different selector, different element, or acknowledge you're stuck).
+- **READ THE SCREEN**: Before clicking, verify the element exists in the current page content.
 
 MEMORY / LEARNING:
 {self.user_context}"""
@@ -64,6 +77,24 @@ MEMORY / LEARNING:
         self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
         self.screenshots_dir = os.path.join(self.data_dir, "screenshots")
         os.makedirs(self.screenshots_dir, exist_ok=True)
+    
+    def detect_loop(self, action_name: str, action_args: str) -> bool:
+        """Detect if the agent is stuck in a loop repeating the same action."""
+        action_key = f"{action_name}:{action_args}"
+        
+        # Count occurrences of this exact action in recent history
+        count = sum(1 for a in self.recent_actions if a == action_key)
+        
+        # Add to history
+        self.recent_actions.append(action_key)
+        if len(self.recent_actions) > self.max_action_history:
+            self.recent_actions.pop(0)
+        
+        # Flag as loop if same action attempted 3+ times
+        if count >= 2:
+            self.log(f"Loop detected: '{action_name}' attempted {count + 1} times", "warning")
+            return True
+        return False
 
     def log(self, message: str, level: str = "info"):
         logger.info(message)
@@ -72,11 +103,15 @@ MEMORY / LEARNING:
             self.event_callback({"type": "log", "message": message, "level": level})
 
     def emit_message(self, content: str, role: str = "ai"):
-        print(f"[AGENT DEBUG] emit_message called: {content[:50]}...")
+        debug_log(f"emit_message called: content={content[:100] if content else 'None'}...")
+        print(f"[AGENT DEBUG] emit_message called: {content[:50] if content else 'None'}...")
         if self.event_callback:
+            debug_log(f"emit_message: Calling event_callback")
             print(f"[AGENT DEBUG] Calling event_callback with message type")
             self.event_callback({"type": "message", "role": role, "content": content})
+            debug_log(f"emit_message: event_callback returned")
         else:
+            debug_log(f"emit_message: No event_callback set!")
             print(f"[AGENT DEBUG] No event_callback set!")
 
     async def start(self):
@@ -90,6 +125,7 @@ MEMORY / LEARNING:
 
     async def stream_loop(self):
         """Continuously captures screenshots to provide a live feed."""
+        print(f"[STREAM] Starting stream_loop, streaming={self.streaming}")
         while self.streaming:
             if self.browser_manager.page:
                 try:
@@ -99,8 +135,12 @@ MEMORY / LEARNING:
                     self.emit_screenshot(current_path)
                 except Exception as e:
                     # Ignore errors during stream (e.g. browser closing)
+                    print(f"[STREAM] Error: {e}")
                     pass
+            else:
+                print(f"[STREAM] No page available yet")
             await asyncio.sleep(0.5) # 2 FPS
+        print(f"[STREAM] stream_loop ended")
 
     def emit_screenshot(self, path: str):
         if self.event_callback:
@@ -109,8 +149,11 @@ MEMORY / LEARNING:
                     with open(path, "rb") as f:
                         encoded = base64.b64encode(f.read()).decode('utf-8')
                         self.event_callback({"type": "screenshot", "data": encoded})
+                else:
+                    print(f"[SCREENSHOT] File not found: {path}")
             except Exception as e:
                 logger.error(f"Failed to emit screenshot: {e}")
+                print(f"[SCREENSHOT] Error: {e}")
 
     async def run(self, user_input: str):
         """
@@ -222,29 +265,43 @@ MEMORY / LEARNING:
                 
                 # After tools, capture new state
                 await asyncio.sleep(1.0) # Wait for UI to settle/animate
-                await self.browser_manager.screenshot("screenshots/current_state.png")
-                self.emit_screenshot("screenshots/current_state.png")
+                screenshot_path = os.path.join(self.screenshots_dir, "current_state.png")
+                await self.browser_manager.screenshot(screenshot_path)
+                self.emit_screenshot(screenshot_path)
                 
             else:
                 # No tool calls, implies the model is done or asking a question
                 break
 
     async def execute_tool(self, name: str, args: dict):
+        # Check for loops before executing
+        args_str = json.dumps(args, sort_keys=True)
+        if self.detect_loop(name, args_str):
+            return f"WARNING: Loop detected! You've tried '{name}' with these same arguments multiple times. Try a DIFFERENT approach."
+        
         # Core Navigation
         if name == "navigate":
-            await self.browser_manager.navigate(args.get("url"))
-            return f"Navigated to {args.get('url')}"
+            url = args.get("url")
+            result = await self.browser_manager.navigate(url)
+            if result["success"]:
+                return f"Navigated to {url}"
+            else:
+                error = result.get("error", "Unknown error")
+                status = result.get("status_code")
+                if status:
+                    return f"Navigation failed (HTTP {status}): {error}"
+                return f"Navigation failed: {error}"
         
         # Click Actions
         elif name == "click":
             selector = args.get("selector_or_text")
             try:
-                await self.browser_manager.page.click(selector, timeout=2000)
+                await self.browser_manager.page.click(selector, timeout=3000)
             except:
                 try:
-                    await self.browser_manager.page.get_by_text(selector).first.click(timeout=2000)
+                    await self.browser_manager.page.get_by_text(selector).first.click(timeout=3000)
                 except Exception as e:
-                    return f"Failed to click '{selector}': {str(e)}"
+                    return f"Failed to click '{selector}': {str(e)}. Try a different selector or verify the element exists."
             return f"Clicked {selector}"
         
         elif name == "click_coordinates":

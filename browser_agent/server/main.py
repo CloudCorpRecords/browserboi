@@ -40,6 +40,8 @@ class SettingsRequest(BaseModel):
 active_agents = {}  # instance_id -> Agent
 connected_websockets = {}  # instance_id -> set of websockets
 agent_busy_status = {}  # instance_id -> bool
+event_queues = {}  # instance_id -> asyncio.Queue for pending events
+broadcast_tasks = {}  # instance_id -> background task for broadcasting
 MAX_AGENTS = 9
 
 def get_or_create_agent(instance_id: int):
@@ -48,42 +50,94 @@ def get_or_create_agent(instance_id: int):
         if len(active_agents) >= MAX_AGENTS:
             raise ValueError(f"Maximum {MAX_AGENTS} agents reached")
         
+        # Create event queue for this instance
+        event_queues[instance_id] = asyncio.Queue()
+        
         def event_callback(event):
-            broadcast_event(instance_id, event)
+            # Push event to queue (sync-safe)
+            try:
+                event_queues[instance_id].put_nowait(event)
+                print(f"[QUEUE] Instance {instance_id}: Queued {event.get('type')} event")
+            except Exception as e:
+                print(f"[QUEUE] Error queuing event: {e}")
         
         active_agents[instance_id] = Agent(event_callback=event_callback)
-        connected_websockets[instance_id] = set()
+        
+        # IMPORTANT: Only initialize websocket set if not already present
+        # WebSocket may connect BEFORE agent is created, so don't overwrite!
+        if instance_id not in connected_websockets:
+            connected_websockets[instance_id] = set()
+        
         agent_busy_status[instance_id] = False
+        
+        # Start broadcast consumer task
+        broadcast_tasks[instance_id] = asyncio.create_task(
+            broadcast_consumer(instance_id)
+        )
     
     return active_agents[instance_id]
 
-def broadcast_event(instance_id: int, event):
-    """Helper to send event to all connected websockets for this instance"""
-    message = json.dumps(event)
-    print(f"[BROADCAST] Instance {instance_id}: {event.get('type')} - {str(event)[:100]}")
+async def broadcast_consumer(instance_id: int):
+    """Background task that consumes events from queue and broadcasts to websockets"""
+    import sys
+    print(f"[BROADCAST] Starting consumer for instance {instance_id}", flush=True)
+    queue = event_queues[instance_id]
+    screenshot_count = 0
     
-    if instance_id not in connected_websockets:
-        print(f"[BROADCAST] No websockets connected for instance {instance_id}")
-        return
-    
-    websockets_to_notify = list(connected_websockets[instance_id])
-    if not websockets_to_notify:
-        print(f"[BROADCAST] Empty websocket set for instance {instance_id}")
-        return
-    
-    print(f"[BROADCAST] Sending to {len(websockets_to_notify)} websocket(s)")
-    
-    for ws in websockets_to_notify:
+    while True:
         try:
-            # Get the running event loop and schedule the send
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.run_coroutine_threadsafe(ws.send_text(message), loop)
+            # Wait for event from queue
+            event = await queue.get()
+            event_type = event.get('type')
+            
+            # Reduce screenshot logging spam
+            if event_type == 'screenshot':
+                screenshot_count += 1
+                if screenshot_count % 10 == 1:  # Log every 10th screenshot
+                    print(f"[BROADCAST] Instance {instance_id}: Screenshot #{screenshot_count}", flush=True)
             else:
-                loop.run_until_complete(ws.send_text(message))
+                print(f"[BROADCAST] Instance {instance_id}: Sending {event_type}", flush=True)
+            
+            message = json.dumps(event)
+            
+            if instance_id not in connected_websockets:
+                print(f"[BROADCAST] No websockets registered for instance {instance_id}", flush=True)
+                queue.task_done()
+                continue
+            
+            websockets_to_notify = list(connected_websockets[instance_id])
+            if not websockets_to_notify:
+                print(f"[BROADCAST] Empty websocket set for instance {instance_id}", flush=True)
+                queue.task_done()
+                continue
+            
+            # Send to all connected websockets
+            for ws in websockets_to_notify:
+                try:
+                    await ws.send_text(message)
+                except Exception as e:
+                    print(f"[BROADCAST] Error sending to websocket: {e}", flush=True)
+                    connected_websockets[instance_id].discard(ws)
+                    
+            queue.task_done()
+        except asyncio.CancelledError:
+            print(f"[BROADCAST] Consumer for instance {instance_id} cancelled", flush=True)
+            break
         except Exception as e:
-            print(f"[BROADCAST] Error sending to websocket: {e}")
-            connected_websockets[instance_id].discard(ws)
+            print(f"[BROADCAST] Consumer error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+
+def broadcast_event(instance_id: int, event):
+    """Helper to queue event for broadcast - can be called synchronously"""
+    if instance_id in event_queues:
+        try:
+            event_queues[instance_id].put_nowait(event)
+            print(f"[QUEUE] Instance {instance_id}: Queued {event.get('type')} event (direct)")
+        except Exception as e:
+            print(f"[QUEUE] Error queuing event: {e}")
+    else:
+        print(f"[QUEUE] No queue for instance {instance_id}")
 
 async def run_agent_task(instance_id: int, task_prompt: str):
     print(f"[DEBUG] Starting task for instance {instance_id}: {task_prompt}")

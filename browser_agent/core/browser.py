@@ -1,11 +1,20 @@
 from playwright.async_api import async_playwright, Browser as PlaywrightBrowser, Page, BrowserContext
+from playwright_stealth import Stealth
 import time
 import os
 import asyncio
+import random
 from typing import Optional, List
 
 # Base directory for the data folder
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
+# Realistic user agents for stealth
+USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+]
 
 class BrowserManager:
     def __init__(self, headless: bool = True):
@@ -19,32 +28,56 @@ class BrowserManager:
         self.state_file = os.path.join(DATA_DIR, "browser_state.json")
 
     async def start(self):
-        """Starts the Playwright browser session."""
+        """Starts the Playwright browser session with stealth configuration."""
         if self.playwright:
              await self.stop()
 
         self.playwright = await async_playwright().start()
         
-        # ALWAYS run headless for Electron embedding
-        # Use pipes (default) instead of fixed port to avoid conflicts
+        # Launch with stealth-friendly args
         self.browser = await self.playwright.chromium.launch(
-            headless=True
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
         )
         
         # Load storage state if exists (cookies, local storage)
         storage_state = self.state_file if os.path.exists(self.state_file) else None
         
-        # Set a fixed viewport to ensure content acts like a desktop
-        viewport = {"width": 1280, "height": 800}
+        # Set realistic viewport with slight randomization
+        viewport = {
+            "width": 1280 + random.randint(-20, 20),
+            "height": 800 + random.randint(-20, 20)
+        }
+        
+        # Stealth context configuration
+        context_options = {
+            "viewport": viewport,
+            "user_agent": random.choice(USER_AGENTS),
+            "locale": "en-US",
+            "timezone_id": "America/Los_Angeles",
+            "device_scale_factor": 1,
+            "has_touch": False,
+            "is_mobile": False,
+            "java_script_enabled": True,
+        }
         
         if storage_state:
-            self.context = await self.browser.new_context(storage_state=storage_state, viewport=viewport)
+            context_options["storage_state"] = storage_state
             print("Loaded browser state (cookies).")
-        else:
-            self.context = await self.browser.new_context(viewport=viewport)
-            
+        
+        self.context = await self.browser.new_context(**context_options)
+        
+        # Create page and apply stealth
         self.page = await self.context.new_page()
+        stealth = Stealth()
+        await stealth.apply_stealth_async(self.page)  # Apply stealth patches
+        
         self.tabs = [self.page]  # Initialize tabs list
+        print("Browser started with stealth configuration.")
 
     async def save_state(self):
         """Saves storage state (cookies) to file."""
@@ -61,21 +94,60 @@ class BrowserManager:
         if self.playwright:
             await self.playwright.stop()
 
-    async def navigate(self, url: str):
-        """Navigates to the specified URL."""
-        if self.page:
+    async def navigate(self, url: str, max_retries: int = 2) -> dict:
+        """
+        Navigates to the specified URL with robust error handling.
+        
+        Returns:
+            dict with 'success', 'status_code', 'error' keys
+        """
+        if not self.page:
+            return {"success": False, "error": "No page available"}
+        
+        result = {"success": False, "status_code": None, "error": None}
+        
+        for attempt in range(max_retries + 1):
             try:
-                await self.page.goto(url)
-                # networkidle is better for SPAs but can be slow. 
-                # using domcontentloaded + small sleep is often a good balance, 
-                # but let's try networkidle first to ensure page is "ready".
+                # Navigate and capture response
+                response = await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                
+                if response:
+                    result["status_code"] = response.status
+                    
+                    # Check for HTTP errors
+                    if response.status >= 400:
+                        result["error"] = f"HTTP {response.status}: {response.status_text}"
+                        print(f"Navigation HTTP error: {result['error']}")
+                        if response.status < 500:  # Don't retry client errors
+                            return result
+                        continue  # Retry server errors
+                
+                # Wait for network to settle
                 try:
-                    await self.page.wait_for_load_state("networkidle", timeout=5000)
-                except:
-                    # Fallback if network never idles
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    await self.page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    # Fallback - page may never reach networkidle (streaming sites, etc.)
+                    await asyncio.sleep(1)
+                
+                # Add small human-like delay
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                
+                result["success"] = True
+                result["error"] = None
+                return result
+                
             except Exception as e:
-                print(f"Navigation warning: {e}")
+                error_msg = str(e)
+                result["error"] = error_msg
+                print(f"Navigation attempt {attempt + 1} failed: {error_msg}")
+                
+                if "timeout" in error_msg.lower() and attempt < max_retries:
+                    await asyncio.sleep(1)  # Wait before retry
+                    continue
+                    
+                return result
+        
+        return result
 
     async def get_content(self) -> str:
         """Returns the HTML content of the current page."""
@@ -93,14 +165,35 @@ class BrowserManager:
             except Exception as e:
                 print(f"Error getting text: {e}")
         return ""
+    
+    async def get_page_info(self) -> dict:
+        """Get structured info about the current page for better LLM context."""
+        if not self.page:
+            return {}
+        
+        try:
+            info = {
+                "url": self.page.url,
+                "title": await self.page.title(),
+            }
+            
+            # Count interactive elements
+            info["form_count"] = await self.page.evaluate("document.forms.length")
+            info["link_count"] = await self.page.evaluate("document.links.length")
+            info["button_count"] = await self.page.evaluate("document.querySelectorAll('button, [type=submit]').length")
+            info["input_count"] = await self.page.evaluate("document.querySelectorAll('input, textarea, select').length")
+            
+            return info
+        except Exception as e:
+            print(f"Error getting page info: {e}")
+            return {"url": self.page.url if self.page else "unknown"}
 
-    async def screenshot(self, path: str, quality: int = 85):
-        """Takes a screenshot of the current page."""
+    async def screenshot(self, path: str, quality: int = 90):
+        """Takes a high-quality screenshot of the current page."""
         if self.page:
             try:
-                # specific fix for "white screen" - sometimes needed for headless chrome
-                # await self.page.evaluate("document.fonts.ready") 
-                
+                # Wait for fonts to load for cleaner screenshot
+                await self.page.evaluate("document.fonts.ready")
                 await self.page.screenshot(path=path, type="jpeg", quality=quality)
             except Exception as e:
                 print(f"Screenshot warning: {e}")

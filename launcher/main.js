@@ -22,6 +22,9 @@ function createWindow() {
         title: "Browser Agent - 9 Instance Grid"
     });
 
+    // DISABLED: BrowserViews were overlaying and blocking screenshot display
+    // TODO: Re-enable when CDP-based browser embedding is implemented
+    /*
     // Create 9 BrowserViews for the grid
     for (let i = 0; i < NUM_AGENTS; i++) {
         const view = new BrowserView({
@@ -37,6 +40,7 @@ function createWindow() {
 
         browserViews.push(view);
     }
+    */
 
     // Setup listener BEFORE loading file
     mainWindow.webContents.once('did-finish-load', () => {
@@ -56,6 +60,12 @@ function createWindow() {
 }
 
 function updateGridLayout() {
+    // DISABLED: BrowserView grid was covering screenshot display
+    // TODO: Re-enable when CDP-based browser embedding is implemented
+    // The screenshot-based live view works fine for now
+    return;
+
+    /* Original grid code - disabled
     if (!mainWindow || !dashboardReady) return;
 
     const bounds = mainWindow.getBounds();
@@ -79,20 +89,13 @@ function updateGridLayout() {
             height: cellHeight
         });
     }
+    */
 }
 
 function showGridView() {
-    if (!mainWindow) return;
-
+    // DISABLED: Don't show BrowserView grid, use screenshot-based view instead
     dashboardReady = true;
-
-    // Load CDP endpoints for each agent
-    // For now, just show about:blank in each cell
-    for (let i = 0; i < NUM_AGENTS; i++) {
-        browserViews[i].webContents.loadURL('about:blank');
-    }
-
-    updateGridLayout();
+    // Don't call updateGridLayout() - let the HTML screenshot display work
 }
 
 async function killZombieProcesses() {

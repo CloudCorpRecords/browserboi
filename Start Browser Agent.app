@@ -1,1 +1,0 @@
-dist/mac-arm64/Browser Agent.app
